@@ -208,7 +208,31 @@ body.intro-scroll-mode .screen { height: auto; min-height: 100dvh; }
 #retryBtnWrap { width:100%; display:flex; flex-direction:column; align-items:center; gap:10px; }
 #retryBtnWrap .btn-primary, #retryBtnWrap .btn-secondary { width:100%; max-width:412px; margin-top:0 !important; flex-shrink:0; }
 .result-cta-inline { position:relative; bottom:auto; left:auto; margin:8px -16px -32px; width:calc(100% + 32px); border-radius:0 0 20px 20px; }
-.result-cta-inline .btn-text { margin-top:2px; }
+.result-cta-inline .btn-text { margin-top:2px; width:auto; height:auto; padding:8px 12px 2px; text-underline-offset:4px; }
+
+
+.home-text-link {
+  display:inline-block !important;
+  width:auto !important;
+  height:auto !important;
+  min-width:0 !important;
+  padding:6px 2px 2px !important;
+  margin:4px 0 0 !important;
+  border:0 !important;
+  border-radius:0 !important;
+  background:transparent !important;
+  box-shadow:none !important;
+  color:var(--text-muted) !important;
+  font-family:'Pretendard Variable', sans-serif !important;
+  font-size:15px !important;
+  font-weight:500 !important;
+  line-height:1.4 !important;
+  text-decoration:underline !important;
+  text-underline-offset:4px !important;
+  cursor:pointer !important;
+  appearance:none !important;
+  -webkit-appearance:none !important;
+}
 
 /* ══════════════════
    SCREEN 1 — INTRO
@@ -854,12 +878,11 @@ body.intro-scroll-mode #screen-intro {
       </div>
       <div class="round-cards" id="roundSummary"></div>
       <div class="result-record-row" id="recordSummary"><span>이전 최고 기록</span><strong>-</strong></div>
-      <div class="result-pill" id="resultPill">이전 최고 점수와 비교 중이에요</div>
       <div class="reward-card" id="rewardCard" style="display:none !important;"><div class="reward-card-title" id="rewardTitle">적립 결과 확인 중</div><div class="reward-card-desc" id="rewardDesc">이번 도전의 포인트를 계산하고 있어요.</div><div class="reward-card-point" id="rewardPoint"></div></div>
       <div id="couponCardWrap"></div>
       <div class="cta-end result-cta-inline" id="resultCta">
         <div id="retryBtnWrap"></div>
-        <button class="btn-text" onclick="goTo('screen-intro')">처음으로</button>
+        <a href="#" id="homeTextLink" class="home-text-link" onclick="event.preventDefault(); goHome();">처음으로</a>
       </div>
     </div>
   </div>
@@ -1187,21 +1210,8 @@ async function requestShareChance() {
 }
 
 async function boot() {
-  // 일반 브라우저/GitHub Pages 목업은 브리지 없이 즉시 실행합니다.
-  await refreshParticipationState();
-  try {
-    appState.bridge = await waitForBridgeReady(600).catch(function () {
-      return null;
-    });
-    if (appState.bridge) {
-      await refreshLoginState();
-      await refreshParticipationState();
-      subscribeRuntimeEvents();
-      return;
-    }
-  } catch (e) {
-    console.error('boot error', e);
-  }
+  // 단일 HTML/GitHub Pages 배포본은 브리지 없이 로컬 참여 기회만 사용합니다.
+  appState.bridge = null;
   await refreshParticipationState();
 }
 
@@ -1965,11 +1975,9 @@ async function showResult() {
   cancelAnimationFrame(state.animFrame);
   stopTips();
 
-  // 한 번의 3라운드 도전을 완료하면 참여 기회 1회를 차감합니다.
-  if (!appState.bridge) {
-    state.attempts = Math.max(0, (Number(state.attempts) || 0) - 1);
-    localStorage.setItem(LOCAL_ATTEMPT_KEY, String(state.attempts));
-  }
+  // 단일 HTML/GitHub Pages 버전: 한 번의 3라운드 도전을 완료하면 참여 기회 1회를 차감합니다.
+  state.attempts = Math.max(0, (Number(state.attempts) || 0) - 1);
+  localStorage.setItem(LOCAL_ATTEMPT_KEY, String(state.attempts));
 
   const validScores = state.scores.map(function(score){ return score === null ? 0 : score; });
   const average = floor2(validScores.reduce(function(sum, score){ return sum + score; }, 0) / 3);
@@ -2001,7 +2009,6 @@ async function showResult() {
   document.getElementById('recordSummary').innerHTML =
     '<span>내 최고기록</span><strong>' + fmt2(Math.max(previousBest, average)) + '%</strong>';
 
-  const pill = document.getElementById('resultPill');
   const emoji = document.getElementById('resultEmoji');
   const status = document.getElementById('resultStatus');
   const message = document.getElementById('resultMessage');
@@ -2029,7 +2036,6 @@ async function showResult() {
   emoji.textContent = scoreMsg.emoji;
   status.textContent = scoreMsg.title;
   message.textContent = scoreMsg.body;
-  pill.textContent = improved ? '새로운 최고 기록' : '이번 플레이 결과';
   document.getElementById('confettiWrap').innerHTML = '';
   if (improved || average >= 95) spawnConfetti();
 
@@ -2147,14 +2153,20 @@ function watchAdForChance() {
   alert('광고 시청 완료! 게임 기회 1회가 추가됐어요.');
 }
 
-async function shareAndGetChance() {
-  const shared = await shareGame();
-  if (shared === false) return;
+function shareAndGetChance() {
+  // 목업: 버튼을 누르는 즉시 게임 기회 1회를 지급합니다.
+  if (window.__shareChanceBusy) return;
+  window.__shareChanceBusy = true;
+
   state.attempts = Math.max(0, Number(state.attempts) || 0) + 1;
   localStorage.setItem(LOCAL_ATTEMPT_KEY, String(state.attempts));
   updateIntroCta();
   renderRetryButton();
-  alert('공유 완료! 게임 기회 1회가 추가됐어요.');
+  alert('게임 기회 1회가 추가됐어요.');
+
+  window.setTimeout(function () {
+    window.__shareChanceBusy = false;
+  }, 700);
 }
 
 async function shareGame() {
@@ -2262,94 +2274,25 @@ syncRootScrollMode('screen-intro');
 boot();
 </script>
 
-    <script>
-      window.__OGOGBridgeMockConfig = {
-        bridgeVersion: "1.0.0",
-        allowFunctions: [
-          "login.check","login.request",
-          "storage.getItem","storage.setItem","storage.removeItem",
-          "navigation.openUrl",
-          "participation.getState","participation.getExtraChance",
-          "execution.report","execution.close",
-          "share.requestKakao","share.complete",
-          "ui.toast","ui.messageBox",
-          "log.track","log.flush"
-        ],
-        ui: {
-          hideDebugPanel: false
-        },
-        storage: { namespace: "plating-challenge", persistKey: "PLATING_CHALLENGE_PRESET" },
-        share: {
-          enabled: true,
-          feedSeq: 9201,
-          referrerCode: "plating-challenge-ref"
-        },
-        profile: {
-          isLogin: false,
-          baseRemainingCount: 3,
-          extraRemainingCount: 0,
-          playable: true,
-          inspect: {
-            playable: true,
-            reasonCode: "OK",
-            requiresLogin: false,
-            maintenance: false
-          }
-        },
-        flowPolicy: {
-          schemaVersion: "1.0",
-          flows: [
-            {
-              flowId: PLATING_CHALLENGE_LANDING_FLOW_ID,
-              actionType: "COMPLETE",
-              benefits: [{ benefitId: PLATING_CHALLENGE_LANDING_BENEFIT_ID }]
-            },
-            {
-              flowId: PLATING_CHALLENGE_SHARE_EXTRA_PLAY_FLOW_ID,
-              actionType: "SHARE_COMPLETED",
-              benefits: [{ benefitId: PLATING_CHALLENGE_SHARE_EXTRA_PLAY_BENEFIT_ID }]
-            }
-          ]
-        },
-        benefit: {
-          previousBestScore: 0
-        },
-        benefitPolicies: [
-          {
-            benefitId: PLATING_CHALLENGE_LANDING_BENEFIT_ID,
-            benefitType: "LANDING_URL",
-            conditionType: "SCORE_RANGE",
-            conditionJson: {
-              minScore: 80
-            },
-            benefitTitle: "플레이팅 챌린지 포인트 랜딩",
-            benefitConfigJson: {
-              issueLimitType: "USER_DAILY",
-              issueLimitCount: 1,
-              claimRequiredYn: "N"
-            }
-          },
-          {
-            benefitId: PLATING_CHALLENGE_SHARE_EXTRA_PLAY_BENEFIT_ID,
-            benefitType: "EXTRA_PLAY",
-            conditionType: "ALWAYS",
-            conditionJson: {},
-            benefitTitle: "플레이팅 챌린지 공유 추가 기회",
-            benefitConfigJson: {
-              count: 1,
-              issueLimitType: "USER_DAILY",
-              issueLimitCount: 1
-            }
-          }
-        ],
-        metadata: {
-          selectedPresetId: "plating-challenge"
-        }
-      };
-    </script>
-    <script
-      src="https://dev.ogog.kr/resources/js/ogogbridge/ogogbridge-1.0.0.mock.js"
-      data-ogog-bridge-mock="true"
-    ></script>
-  </body>
+  
+<script>
+(function enforceStableResultUi(){
+  const removeLegacyResultBanner = () => {
+    document.querySelectorAll('body *').forEach((el) => {
+      if (el.children.length === 0 && el.textContent.trim() === '이번 플레이 결과') {
+        el.remove();
+      }
+    });
+    const home = document.getElementById('homeTextLink');
+    if (home) {
+      home.className = 'home-text-link';
+      home.removeAttribute('style');
+    }
+  };
+  document.addEventListener('DOMContentLoaded', removeLegacyResultBanner);
+  new MutationObserver(removeLegacyResultBanner).observe(document.documentElement, { childList:true, subtree:true });
+})();
+</script>
+<!-- build: plating01-v16-images-restored-share-instant -->
+</body>
 </html>
